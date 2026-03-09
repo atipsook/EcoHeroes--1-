@@ -1,12 +1,12 @@
+// app/_layout.tsx
 import { useEffect } from 'react'
-import { Stack } from 'expo-router'
-import { StatusBar } from 'expo-status-bar'
+import { Slot } from 'expo-router'
 import { View, ActivityIndicator } from 'react-native'
 import { useGameStore } from '../store/useGameStore'
 import { COLORS } from '../constants/types'
 
 export default function RootLayout() {
-  const { loadUser, isLoading, isAuthenticated } = useGameStore()
+  const { loadUser, isLoading } = useGameStore()
 
   useEffect(() => {
     loadUser()
@@ -20,19 +20,5 @@ export default function RootLayout() {
     )
   }
 
-  return (
-    <>
-      <StatusBar style="dark" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: COLORS.background },
-        }}
-      >
-        <Stack.Screen name="index" />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      </Stack>
-    </>
-  )
+  return <Slot />
 }
