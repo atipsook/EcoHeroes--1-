@@ -2,12 +2,22 @@
 import { useState } from 'react'
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform, ScrollView, Alert, ActivityIndicator
+  KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator,
 } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { useGameStore } from '../../store/useGameStore'
 import { COLORS } from '../../constants/types'
+
+// Cross-platform alert (Alert.alert buttons don't fire on web)
+const showAlert = (title: string, message?: string) => {
+  if (Platform.OS === 'web') {
+    window.alert(message ? `${title}\n\n${message}` : title)
+  } else {
+    const { Alert } = require('react-native')
+    Alert.alert(title, message)
+  }
+}
 
 export default function LoginScreen() {
   const router = useRouter()
@@ -21,51 +31,123 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
+  // Shown after successful registration when email confirmation is required
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false)
+  const [confirmedEmail, setConfirmedEmail] = useState('')
+
   const handleSubmit = async () => {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please enter your email and password.')
+      showAlert('Missing fields', 'Please enter your email and password.')
       return
     }
     if (isSignUp && !username.trim()) {
-      Alert.alert('Missing fields', 'Please enter a username.')
+      showAlert('Missing fields', 'Please enter a username.')
+      return
+    }
+    if (password.length < 6) {
+      showAlert('Weak password', 'Password must be at least 6 characters.')
       return
     }
 
     setIsLoading(true)
     try {
       if (isSignUp) {
-        await register(email.trim(), password, username.trim(), role)
+        const needsConfirmation = await register(email.trim(), password, username.trim(), role)
+        if (needsConfirmation) {
+          // Email confirmation required — show the "check your inbox" screen
+          // Do NOT navigate to the app yet
+          setConfirmedEmail(email.trim())
+          setAwaitingConfirmation(true)
+          return
+        }
+        // No confirmation needed — session is live, go straight to app
+        router.replace('/(tabs)/home')
       } else {
         await login(email.trim(), password)
+        router.replace('/(tabs)/home')
       }
-      // Navigate to home tab after successful auth
-      router.replace('/(tabs)/home')
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Something went wrong. Please try again.')
+      showAlert('Error', error.message || 'Something went wrong. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
+  // ── "Check your email" screen ────────────────────────────────────────────
+  if (awaitingConfirmation) {
+    return (
+      <View style={styles.confirmContainer}>
+        <View style={styles.confirmCard}>
+          <View style={styles.confirmIconWrap}>
+            <Ionicons name="mail" size={54} color={COLORS.primary} />
+          </View>
+          <Text style={styles.confirmTitle}>Check your email!</Text>
+          <Text style={styles.confirmBody}>
+            We sent a confirmation link to:
+          </Text>
+          <Text style={styles.confirmEmail}>{confirmedEmail}</Text>
+          <Text style={styles.confirmHint}>
+            Click the link in the email to activate your account, then come back and sign in.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.confirmBtn}
+            onPress={() => {
+              // Reset to sign-in form so they can log in after confirming
+              setAwaitingConfirmation(false)
+              setIsSignUp(false)
+              setPassword('')
+            }}
+          >
+            <Ionicons name="log-in-outline" size={20} color={COLORS.white} />
+            <Text style={styles.confirmBtnText}>Go to Sign In</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.resendBtn}
+            onPress={async () => {
+              try {
+                const { error } = await (await import('../../lib/supabase')).supabase.auth.resend({
+                  type: 'signup',
+                  email: confirmedEmail,
+                })
+                if (error) throw error
+                showAlert('Email resent', 'Check your inbox again.')
+              } catch (e: any) {
+                showAlert('Error', e.message || 'Could not resend email.')
+              }
+            }}
+          >
+            <Text style={styles.resendText}>Didn't receive it? Resend email</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    )
+  }
+
+  // ── Main login / sign-up form ─────────────────────────────────────────────
   return (
-    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
 
-        {/* Back button */}
         <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={22} color={COLORS.text} />
         </TouchableOpacity>
 
-        {/* Header */}
         <View style={styles.header}>
           <View style={styles.iconWrap}>
             <Ionicons name="leaf" size={50} color={COLORS.primary} />
           </View>
           <Text style={styles.title}>{isSignUp ? 'Create Account' : 'Welcome Back!'}</Text>
-          <Text style={styles.subtitle}>{isSignUp ? 'Join the Climate Challenge' : 'Sign in to continue'}</Text>
+          <Text style={styles.subtitle}>
+            {isSignUp ? 'Join the Climate Challenge' : 'Sign in to continue'}
+          </Text>
         </View>
 
-        {/* Role selector — only on sign up */}
+        {/* Role selector — sign up only */}
         {isSignUp && (
           <View style={styles.section}>
             <Text style={styles.label}>I am a...</Text>
@@ -88,7 +170,7 @@ export default function LoginScreen() {
           </View>
         )}
 
-        {/* Username — only on sign up */}
+        {/* Username — sign up only */}
         {isSignUp && (
           <View style={styles.section}>
             <Text style={styles.label}>Username</Text>
@@ -136,9 +218,11 @@ export default function LoginScreen() {
               <Ionicons name={showPassword ? 'eye-off' : 'eye'} size={20} color={COLORS.gray} />
             </TouchableOpacity>
           </View>
+          {isSignUp && (
+            <Text style={styles.passwordHint}>Minimum 6 characters</Text>
+          )}
         </View>
 
-        {/* Submit button */}
         <TouchableOpacity
           style={[styles.submitBtn, isLoading && styles.submitBtnDisabled]}
           onPress={handleSubmit}
@@ -151,8 +235,10 @@ export default function LoginScreen() {
           }
         </TouchableOpacity>
 
-        {/* Toggle sign in / sign up */}
-        <TouchableOpacity style={styles.toggleBtn} onPress={() => setIsSignUp(!isSignUp)}>
+        <TouchableOpacity
+          style={styles.toggleBtn}
+          onPress={() => { setIsSignUp(!isSignUp); setPassword('') }}
+        >
           <Text style={styles.toggleText}>
             {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
             <Text style={styles.toggleLink}>{isSignUp ? 'Sign In' : 'Sign Up'}</Text>
@@ -193,6 +279,7 @@ const styles = StyleSheet.create({
   },
   passwordInput: { flex: 1, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, color: COLORS.text },
   eyeBtn: { paddingHorizontal: 14 },
+  passwordHint: { fontSize: 12, color: COLORS.textLight, marginTop: 6, marginLeft: 4 },
   roleRow: { flexDirection: 'row', gap: 12 },
   roleBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
@@ -211,4 +298,35 @@ const styles = StyleSheet.create({
   toggleBtn: { alignItems: 'center', paddingVertical: 8 },
   toggleText: { fontSize: 14, color: COLORS.textLight },
   toggleLink: { color: COLORS.primary, fontWeight: '700' },
+  // ── Confirmation screen ────────────────────────────────────────────────────
+  confirmContainer: {
+    flex: 1, backgroundColor: COLORS.background,
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  confirmCard: {
+    backgroundColor: COLORS.white, borderRadius: 24, padding: 32,
+    alignItems: 'center', width: '100%', maxWidth: 400,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1, shadowRadius: 16, elevation: 8,
+  },
+  confirmIconWrap: {
+    width: 100, height: 100, borderRadius: 50,
+    backgroundColor: COLORS.primary + '15',
+    justifyContent: 'center', alignItems: 'center', marginBottom: 20,
+  },
+  confirmTitle: { fontSize: 24, fontWeight: 'bold', color: COLORS.text, marginBottom: 12 },
+  confirmBody: { fontSize: 15, color: COLORS.textLight, textAlign: 'center', marginBottom: 6 },
+  confirmEmail: { fontSize: 15, fontWeight: '700', color: COLORS.primary, marginBottom: 16 },
+  confirmHint: {
+    fontSize: 14, color: COLORS.textLight, textAlign: 'center',
+    lineHeight: 21, marginBottom: 28,
+  },
+  confirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.primary, paddingVertical: 15, paddingHorizontal: 32,
+    borderRadius: 14, gap: 8, width: '100%', marginBottom: 16,
+  },
+  confirmBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '700' },
+  resendBtn: { paddingVertical: 8 },
+  resendText: { fontSize: 14, color: COLORS.primary, fontWeight: '600' },
 })

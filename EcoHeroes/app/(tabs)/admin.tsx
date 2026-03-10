@@ -2,13 +2,39 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert,
-  ActivityIndicator, RefreshControl, TextInput,
+  ActivityIndicator, RefreshControl, TextInput, Platform,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../../lib/supabase'
 import { COLORS } from '../../constants/types'
 import { useGameStore } from '../../store/useGameStore'
+
+// ── Cross-platform alert helpers ─────────────────────────────────────────────
+const showAlert = (title: string, message?: string) => {
+  if (Platform.OS === 'web') {
+    window.alert(message ? `${title}\n\n${message}` : title)
+  } else {
+    Alert.alert(title, message)
+  }
+}
+
+const showConfirm = (
+  title: string,
+  message: string,
+  onConfirm: () => void,
+  confirmLabel = 'OK'
+) => {
+  if (Platform.OS === 'web') {
+    const confirmed = window.confirm(`${title}\n\n${message}`)
+    if (confirmed) onConfirm()
+  } else {
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: confirmLabel, style: 'destructive', onPress: onConfirm },
+    ])
+  }
+}
 
 interface PendingSubmission {
   id: string
@@ -235,52 +261,46 @@ export default function AdminScreen() {
           ? { ...st, completed_count: st.completed_count + 1, pending_count: Math.max(0, st.pending_count - 1), total_points: (st.total_points || 0) + s.points_value }
           : st
       ))
-      Alert.alert('Approved! ✅', `${s.username}'s challenge approved and ${s.points_value} points awarded!`)
+      showAlert('Approved! ✅', `${s.username}'s challenge approved and ${s.points_value} points awarded!`)
     } catch (e: any) {
       console.error('Approve error:', e)
-      Alert.alert('Error', e.message || 'Failed to approve submission.')
+      showAlert('Error', e.message || 'Failed to approve submission.')
     }
   }
 
   // ── Reject ───────────────────────────────────────────────────────────────────
   const handleReject = (s: PendingSubmission) => {
-    Alert.alert('Reject Submission', `Reject ${s.username}'s challenge?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reject', style: 'destructive', onPress: async () => {
+    showConfirm(
+      'Reject Submission',
+      `Reject ${s.username}'s challenge?`,
+      async () => {
         await supabase.from('pending_challenges').update({ status: 'rejected' }).eq('id', s.id)
         setPending(prev => prev.filter(p => p.id !== s.id))
         setStudents(prev => prev.map(st =>
           st.id === s.user_id ? { ...st, pending_count: Math.max(0, st.pending_count - 1) } : st
         ))
-      }}
-    ])
+      },
+      'Reject'
+    )
   }
 
   // FIX: Remove student from class
   const handleRemoveStudent = (s: StudentProgress) => {
-    Alert.alert(
+    showConfirm(
       'Remove Student',
       `Remove ${s.username} from your class? They will lose access to custom challenges and teacher approvals.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const { error } = await supabase
-                .from('users')
-                .update({ class_code: null, parent_id: null })
-                .eq('id', s.id)
-              if (error) throw error
-              setStudents(prev => prev.filter(st => st.id !== s.id))
-              Alert.alert('Removed', `${s.username} has been removed from your class.`)
-            } catch (e: any) {
-              Alert.alert('Error', e.message || 'Failed to remove student.')
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          const { error } = await supabase
+            .from('users').update({ class_code: null, parent_id: null }).eq('id', s.id)
+          if (error) throw error
+          setStudents(prev => prev.filter(st => st.id !== s.id))
+          showAlert('Removed', `${s.username} has been removed from your class.`)
+        } catch (e: any) {
+          showAlert('Error', e.message || 'Failed to remove student.')
+        }
+      },
+      'Remove'
     )
   }
 
@@ -297,18 +317,20 @@ export default function AdminScreen() {
   }
 
   const handleDeleteChallenge = (id: string) => {
-    Alert.alert('Delete Challenge', 'Are you sure?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
+    showConfirm(
+      'Delete Challenge',
+      'Are you sure you want to delete this challenge?',
+      async () => {
         await supabase.from('custom_challenges').delete().eq('id', id)
         setChallenges(prev => prev.filter(c => c.id !== id))
-      }}
-    ])
+      },
+      'Delete'
+    )
   }
 
   const handleSaveChallenge = async () => {
     if (!form.title.trim() || !form.description.trim()) {
-      Alert.alert('Missing fields', 'Please fill in title and description.')
+      showAlert('Missing fields', 'Please fill in title and description.')
       return
     }
     const payload = {
@@ -325,9 +347,9 @@ export default function AdminScreen() {
     const { error } = editingId
       ? await supabase.from('custom_challenges').update(payload).eq('id', editingId)
       : await supabase.from('custom_challenges').insert(payload)
-    if (error) { Alert.alert('Error', error.message); return }
+    if (error) { showAlert('Error', error.message); return }
     setShowForm(false); setEditingId(null); resetForm(); fetchData()
-    Alert.alert('Saved! ✅', 'Challenge saved successfully.')
+    showAlert('Saved! ✅', 'Challenge saved successfully.')
   }
 
   const onRefresh = () => { setRefreshing(true); fetchData() }

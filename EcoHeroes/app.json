@@ -27,7 +27,7 @@
       "package": "com.ecoheroes.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/ccc.jpg"
     },
     "plugins": []
   }

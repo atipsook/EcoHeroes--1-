@@ -1,6 +1,6 @@
 // app/(tabs)/home.tsx
 import { useState, useEffect } from 'react'
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, ActivityIndicator } from 'react-native'
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Image, ActivityIndicator, Platform } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
@@ -8,6 +8,15 @@ import { useGameStore } from '../../store/useGameStore'
 import { COLORS } from '../../constants/types'
 import { CHALLENGES, getTodayChallenge } from '../../constants/data'
 import { supabase } from '../../lib/supabase'
+
+// ── Cross-platform alert ──────────────────────────────────────────────────────
+const showAlert = (title: string, message?: string) => {
+  if (Platform.OS === 'web') {
+    window.alert(message ? `${title}\n\n${message}` : title)
+  } else {
+    Alert.alert(title, message)
+  }
+}
 
 interface DisplayChallenge {
   id: string
@@ -116,7 +125,7 @@ export default function HomeScreen() {
 
   const handleTakePhoto = async (isCustom = false) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync()
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Camera access required.'); return }
+    if (status !== 'granted') { showAlert('Permission needed', 'Camera access required.'); return }
     const result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [4, 3], quality: 0.7 })
     if (!result.canceled) isCustom ? setCustomProofPhoto(result.assets[0].uri) : setProofPhoto(result.assets[0].uri)
   }
@@ -153,18 +162,16 @@ export default function HomeScreen() {
       if (photo) photoUrl = await uploadPhoto(photo, challenge.id) || undefined
 
       if (needsApproval) {
-        // Student in a class → submit for teacher approval
         await submitForApproval(challenge.id, photoUrl)
-        Alert.alert('Submitted! ⏳', 'Sent to your teacher for approval!', [{ text: 'OK' }])
+        showAlert('Submitted! ⏳', 'Sent to your teacher for approval!')
       } else {
-        // Teacher OR student without a class → complete immediately
         await completeChallenge(challenge.id, photoUrl)
         await addPoints(challenge.pointsValue)
         await updateStreak()
-        Alert.alert('Great Job! 🎉', `You earned ${challenge.pointsValue} points!`, [{ text: 'Awesome!' }])
+        showAlert('Great Job! 🎉', `You earned ${challenge.pointsValue} points!`)
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Could not save your challenge.')
+      showAlert('Error', error.message || 'Could not save your challenge.')
     } finally {
       setSubmitting(false)
     }
