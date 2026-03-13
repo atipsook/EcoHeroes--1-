@@ -2,29 +2,53 @@ import { create } from 'zustand'
 import { supabase } from '../lib/supabase'
 import { User } from '../constants/types'
 
+// ── Types ─────────────────────────────────────────────────────────────────────
+export interface ParentRequest {
+  linkId: string
+  parentId: string
+  parentName: string
+}
+
 interface GameState {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
-  // true = signed up, waiting for email confirmation
   awaitingEmailConfirmation: boolean
+  pendingParentRequests: ParentRequest[]
+
   login: (email: string, password: string) => Promise<void>
-  // returns true if email confirmation required
-  register: (email: string, password: string, username: string, role: 'student' | 'parent') => Promise<boolean>
+  register: (email: string, password: string, username: string, role: 'student' | 'teacher' | 'parent') => Promise<boolean>
   logout: () => Promise<void>
   loadUser: () => Promise<void>
   refreshUserState: () => Promise<void>
+
   completeChallenge: (challengeId: string, photoUrl?: string) => Promise<void>
   submitForApproval: (challengeId: string, photoUrl?: string) => Promise<void>
+  submitForChild: (childId: string, challengeId: string, photoUrl?: string) => Promise<void>
   addPoints: (points: number) => Promise<void>
   updateStreak: () => Promise<void>
   resetProgress: () => Promise<void>
+
   createClass: (className: string) => Promise<string>
   joinClass: (code: string) => Promise<void>
   leaveClass: () => Promise<void>
-  getClassMembers: () => Promise<User[]>
+  getClassMembers: () => Promise<any[]>
+
+  // Parent–child linking (used by parent)
+  addChild: (childEmail: string) => Promise<void>
+  removeChild: (linkId: string) => Promise<void>
+  getLinkedChildren: () => Promise<any[]>
+
+  // Student responding to parent requests
+  checkParentRequests: () => Promise<void>
+  acceptParentRequest: (linkId: string) => Promise<void>
+  declineParentRequest: (linkId: string) => Promise<void>
+
+  // Premium
+  setPremium: (value: boolean) => Promise<void>
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const getWeekNumber = () => {
   const now = new Date()
   const start = new Date(now.getFullYear(), 0, 1)
@@ -32,15 +56,21 @@ const getWeekNumber = () => {
   return { week, year: now.getFullYear() }
 }
 
-const mapDbUser = (dbUser: any, completedChallenges: string[], badges: string[], pendingChallenges: string[] = []): any => ({
+const mapDbUser = (
+  dbUser: any,
+  completedChallenges: string[],
+  badges: string[],
+  pendingChallenges: string[] = [],
+): any => ({
   id: dbUser.id,
   username: dbUser.username,
   avatarId: dbUser.avatar_id ?? 1,
   totalPoints: dbUser.total_points ?? 0,
   currentStreak: dbUser.current_streak ?? 0,
-  role: dbUser.role,
+  role: dbUser.role,                          // 'student' | 'teacher' | 'parent'
   class_code: dbUser.class_code ?? null,
   parent_id: dbUser.parent_id ?? null,
+  isPremium: dbUser.is_premium ?? false,
   completedChallenges,
   badges,
   pendingChallenges,
@@ -51,8 +81,13 @@ const fetchFullUser = async (userId: string) => {
     .from('users').select('*').eq('id', userId).single()
   if (error || !dbUser) throw new Error('profile_not_found')
 
+  // Only load completed challenges for the CURRENT week so they reset each week
+  const { week, year } = getWeekNumber()
   const [{ data: completed }, { data: pending }, { data: badges }] = await Promise.all([
-    supabase.from('completed_challenges').select('challenge_id').eq('user_id', userId),
+    supabase.from('completed_challenges').select('challenge_id')
+      .eq('user_id', userId)
+      .eq('week_number', week)
+      .eq('year', year),
     supabase.from('pending_challenges').select('challenge_id').eq('user_id', userId).eq('status', 'pending'),
     supabase.from('user_badges').select('badge_id').eq('user_id', userId),
   ])
@@ -65,46 +100,42 @@ const fetchFullUser = async (userId: string) => {
   )
 }
 
+// ── Store ─────────────────────────────────────────────────────────────────────
 export const useGameStore = create<GameState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
   awaitingEmailConfirmation: false,
+  pendingParentRequests: [],
 
-  // ── Load session on app start ──────────────────────────────────────────────
+  // ── loadUser ───────────────────────────────────────────────────────────────
   loadUser: async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session?.user) {
-        // No session at all — clean unauthenticated state
         set({ isLoading: false, isAuthenticated: false, user: null, awaitingEmailConfirmation: false })
         return
       }
 
-      // Session exists but email not confirmed yet
-      // Supabase marks this: session.user.email_confirmed_at is null
-      const emailConfirmed = !!session.user.email_confirmed_at
-      if (!emailConfirmed) {
-        // Keep them in the "awaiting confirmation" state — don't load profile
-        // Don't set isAuthenticated: true — they haven't confirmed yet
+      if (!session.user.email_confirmed_at) {
         set({ isLoading: false, isAuthenticated: false, user: null, awaitingEmailConfirmation: true })
         return
       }
 
-      // Email confirmed — load the full profile
       try {
         const user = await fetchFullUser(session.user.id)
         set({ user, isAuthenticated: true, isLoading: false, awaitingEmailConfirmation: false })
+        // Students: check for incoming parent requests right after login
+        if (user.role === 'student') get().checkParentRequests()
       } catch (profileError: any) {
         if (profileError.message === 'profile_not_found') {
-          // Email confirmed but trigger hasn't created profile yet — wait & retry once
           await new Promise(r => setTimeout(r, 1500))
           try {
             const user = await fetchFullUser(session.user.id)
             set({ user, isAuthenticated: true, isLoading: false, awaitingEmailConfirmation: false })
+            if (user.role === 'student') get().checkParentRequests()
           } catch {
-            // Profile genuinely missing — sign them out cleanly
             await supabase.auth.signOut()
             set({ isLoading: false, isAuthenticated: false, user: null, awaitingEmailConfirmation: false })
           }
@@ -118,77 +149,122 @@ export const useGameStore = create<GameState>((set, get) => ({
     }
   },
 
-  // ── Re-sync from DB ────────────────────────────────────────────────────────
+  // ── refreshUserState ───────────────────────────────────────────────────────
   refreshUserState: async () => {
     const { user } = get()
     if (!user) return
     try {
       const refreshed = await fetchFullUser(user.id)
       set({ user: refreshed })
-    } catch (e) {
-      console.error('refreshUserState error:', e)
-    }
+      if (refreshed.role === 'student') get().checkParentRequests()
+    } catch (e) { console.error('refreshUserState error:', e) }
   },
 
-  // ── Register ───────────────────────────────────────────────────────────────
-  // Returns true  → email confirmation required (do NOT navigate to app)
-  // Returns false → session live, navigate normally
+  // ── register ───────────────────────────────────────────────────────────────
   register: async (email, password, username, role) => {
     const avatarId = Math.floor(Math.random() * 10) + 1
-
     const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { username, role, avatar_id: avatarId },
-      },
+      email, password,
+      options: { data: { username, role, avatar_id: avatarId } },
     })
     if (error) throw error
-    if (!data.user) throw new Error('Registration failed — no user returned.')
-
-    // data.session is null when email confirmation is required
+    if (!data.user) throw new Error('Registration failed.')
     if (!data.session) {
       set({ awaitingEmailConfirmation: true, isAuthenticated: false, user: null })
-      return true // caller should show "check your email" UI
+      return true
     }
-
-    // Confirmation disabled — session is live immediately
     await new Promise(r => setTimeout(r, 800))
     try {
       const user = await fetchFullUser(data.user.id)
       set({ user, isAuthenticated: true, isLoading: false, awaitingEmailConfirmation: false })
     } catch {
-      // Trigger delay fallback
       const { error: insertError } = await supabase.from('users').insert({
         id: data.user.id, username, role, avatar_id: avatarId, total_points: 0, current_streak: 0,
       })
-      if (insertError && insertError.code !== '23505') {
+      if (insertError && insertError.code !== '23505')
         throw new Error(`Could not create profile: ${insertError.message}`)
-      }
       const user = await fetchFullUser(data.user.id)
       set({ user, isAuthenticated: true, isLoading: false, awaitingEmailConfirmation: false })
     }
     return false
   },
 
-  // ── Login ──────────────────────────────────────────────────────────────────
+  // ── login ──────────────────────────────────────────────────────────────────
   login: async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) throw error
-
-    // Guard: if somehow email isn't confirmed yet
     if (!data.session) throw new Error('Please confirm your email before signing in.')
-
+    const { data: profile, error: profileError } = await supabase
+      .from('users').select('id').eq('id', data.session.user.id).single()
+    if (profileError || !profile) {
+      await supabase.auth.signOut()
+      set({ user: null, isAuthenticated: false, isLoading: false })
+      throw new Error('No account found. Please sign up first.')
+    }
     await get().loadUser()
   },
 
-  // ── Logout ─────────────────────────────────────────────────────────────────
+  // ── logout ─────────────────────────────────────────────────────────────────
   logout: async () => {
     try { await supabase.auth.signOut() } catch (e) { console.error('signOut error:', e) }
-    finally { set({ user: null, isAuthenticated: false, isLoading: false, awaitingEmailConfirmation: false }) }
+    finally {
+      set({
+        user: null, isAuthenticated: false, isLoading: false,
+        awaitingEmailConfirmation: false, pendingParentRequests: [],
+      })
+    }
   },
 
-  // ── Complete challenge ─────────────────────────────────────────────────────
+  // ── checkParentRequests (student only) ────────────────────────────────────
+  checkParentRequests: async () => {
+    const { user } = get()
+    if (!user || user.role !== 'student') return
+    try {
+      const { data } = await supabase
+        .from('parent_children')
+        .select('id, parent_id, status')
+        .eq('child_id', user.id)
+        .eq('status', 'pending')
+
+      if (!data || data.length === 0) {
+        set({ pendingParentRequests: [] })
+        return
+      }
+
+      const parentIds = data.map((r: any) => r.parent_id)
+      const { data: parents } = await supabase
+        .from('users').select('id, username').in('id', parentIds)
+
+      const requests: ParentRequest[] = data.map((r: any) => ({
+        linkId: r.id,
+        parentId: r.parent_id,
+        parentName: parents?.find((p: any) => p.id === r.parent_id)?.username || 'Someone',
+      }))
+      set({ pendingParentRequests: requests })
+    } catch (e) { console.error('checkParentRequests error:', e) }
+  },
+
+  // ── acceptParentRequest ────────────────────────────────────────────────────
+  acceptParentRequest: async (linkId) => {
+    const { error } = await supabase
+      .from('parent_children').update({ status: 'linked' }).eq('id', linkId)
+    if (error) throw new Error(error.message)
+    set(state => ({
+      pendingParentRequests: state.pendingParentRequests.filter(r => r.linkId !== linkId),
+    }))
+  },
+
+  // ── declineParentRequest ───────────────────────────────────────────────────
+  declineParentRequest: async (linkId) => {
+    const { error } = await supabase
+      .from('parent_children').update({ status: 'declined' }).eq('id', linkId)
+    if (error) throw new Error(error.message)
+    set(state => ({
+      pendingParentRequests: state.pendingParentRequests.filter(r => r.linkId !== linkId),
+    }))
+  },
+
+  // ── completeChallenge ──────────────────────────────────────────────────────
   completeChallenge: async (challengeId, photoUrl) => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
@@ -203,7 +279,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: { ...user, completedChallenges: [...user.completedChallenges, challengeId] } })
   },
 
-  // ── Submit for approval ────────────────────────────────────────────────────
+  // ── submitForApproval ──────────────────────────────────────────────────────
   submitForApproval: async (challengeId, photoUrl) => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
@@ -218,7 +294,19 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: { ...user, pendingChallenges: [...pending, challengeId] } as any })
   },
 
-  // ── Add points + badges ────────────────────────────────────────────────────
+  // ── submitForChild (parent) ────────────────────────────────────────────────
+  submitForChild: async (childId, challengeId, photoUrl) => {
+    const { user } = get()
+    if (!user || user.role !== 'parent') throw new Error('Not authorised')
+    const { error } = await supabase.from('pending_challenges').insert({
+      user_id: childId, challenge_id: challengeId,
+      photo_url: photoUrl ?? null, status: 'pending',
+      submitted_at: new Date().toISOString(),
+    })
+    if (error) throw new Error(`Could not submit for child: ${error.message}`)
+  },
+
+  // ── addPoints ──────────────────────────────────────────────────────────────
   addPoints: async (points) => {
     const { user } = get()
     if (!user) return
@@ -241,7 +329,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: newUser })
   },
 
-  // ── Update streak ──────────────────────────────────────────────────────────
+  // ── updateStreak ───────────────────────────────────────────────────────────
   updateStreak: async () => {
     const { user } = get()
     if (!user) return
@@ -261,13 +349,15 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (error) throw new Error(`Could not update streak: ${error.message}`)
     const newUser = { ...user, currentStreak: newStreak }
     if (newStreak >= 7 && !user.badges.includes('streak-7')) {
-      await supabase.from('user_badges').upsert({ user_id: user.id, badge_id: 'streak-7' }, { onConflict: 'user_id,badge_id' })
+      await supabase.from('user_badges').upsert(
+        { user_id: user.id, badge_id: 'streak-7' }, { onConflict: 'user_id,badge_id' }
+      )
       newUser.badges = [...user.badges, 'streak-7']
     }
     set({ user: newUser })
   },
 
-  // ── Reset progress ─────────────────────────────────────────────────────────
+  // ── resetProgress ──────────────────────────────────────────────────────────
   resetProgress: async () => {
     const { user } = get()
     if (!user) return
@@ -280,7 +370,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: { ...user, totalPoints: 0, currentStreak: 0, completedChallenges: [], badges: [], pendingChallenges: [] } as any })
   },
 
-  // ── Create class ───────────────────────────────────────────────────────────
+  // ── createClass ────────────────────────────────────────────────────────────
   createClass: async (className) => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
@@ -292,7 +382,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     return code
   },
 
-  // ── Join class ─────────────────────────────────────────────────────────────
+  // ── joinClass ──────────────────────────────────────────────────────────────
   joinClass: async (code) => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
@@ -305,7 +395,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: { ...user, class_code: code.toUpperCase(), parent_id: classData.owner_id } as any })
   },
 
-  // ── Leave class ────────────────────────────────────────────────────────────
+  // ── leaveClass ─────────────────────────────────────────────────────────────
   leaveClass: async () => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
@@ -315,7 +405,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ user: { ...user, class_code: null, parent_id: null } as any })
   },
 
-  // ── Get class members ──────────────────────────────────────────────────────
+  // ── getClassMembers ────────────────────────────────────────────────────────
   getClassMembers: async () => {
     const { user } = get()
     if (!user) return []
@@ -323,5 +413,87 @@ export const useGameStore = create<GameState>((set, get) => ({
       .from('users').select('*').eq('parent_id', user.id).order('total_points', { ascending: false })
     if (error) throw error
     return data?.map((u: any) => mapDbUser(u, [], [])) ?? []
+  },
+
+  // ── addChild (parent adds child by email) ─────────────────────────────────
+  addChild: async (childEmail) => {
+    const { user } = get()
+    if (!user || user.role !== 'parent') throw new Error('Not a parent account')
+    const email = childEmail.trim().toLowerCase()
+
+    // Insert the invite row
+    const { error } = await supabase.from('parent_children').insert({
+      parent_id: user.id,
+      child_email: email,
+      parent_name: user.username,
+      status: 'pending',
+    })
+    if (error) {
+      if (error.code === '23505') throw new Error('You have already added this child.')
+      throw new Error(error.message)
+    }
+
+    // Call a SECURITY DEFINER RPC that can look up auth.users by email and
+    // immediately set child_id on the row if the child already has an account.
+    // If the child hasn't signed up yet, this is a no-op — the auto_link trigger
+    // on INSERT to users handles it when they eventually register.
+    const { error: rpcError } = await supabase.rpc('link_existing_child', {
+      p_parent_id: user.id,
+      p_child_email: email,
+    })
+    // Non-fatal if RPC doesn't exist yet or fails — invite is still saved
+    if (rpcError) console.warn('link_existing_child rpc:', rpcError.message)
+  },
+
+  // ── removeChild ────────────────────────────────────────────────────────────
+  removeChild: async (linkId) => {
+    const { user } = get()
+    if (!user) throw new Error('Not logged in')
+    const { error } = await supabase
+      .from('parent_children').delete().eq('id', linkId).eq('parent_id', user.id)
+    if (error) throw new Error(error.message)
+  },
+
+  // ── getLinkedChildren ──────────────────────────────────────────────────────
+  getLinkedChildren: async () => {
+    const { user } = get()
+    if (!user) return []
+    const { data, error } = await supabase
+      .from('parent_children')
+      .select(`
+        id,
+        child_email,
+        status,
+        child_id,
+        users!parent_children_child_id_fkey (
+          id, username, avatar_id, total_points, current_streak, class_code, role
+        )
+      `)
+      .eq('parent_id', user.id)
+      .order('created_at', { ascending: true })
+    if (error) throw error
+    return (data ?? []).map((row: any) => ({
+      linkId: row.id,
+      childEmail: row.child_email,
+      status: row.status,
+      child: row.users ? {
+        id: row.users.id,
+        username: row.users.username,
+        avatarId: row.users.avatar_id ?? 1,
+        totalPoints: row.users.total_points ?? 0,
+        currentStreak: row.users.current_streak ?? 0,
+        class_code: row.users.class_code,
+        role: row.users.role,
+      } : null,
+    }))
+  },
+
+  // ── setPremium ─────────────────────────────────────────────────────────────
+  setPremium: async (value) => {
+    const { user } = get()
+    if (!user) return
+    const { error } = await supabase.from('users').update({ is_premium: value }).eq('id', user.id)
+    if (error) throw new Error(error.message)
+    set({ user: { ...user, isPremium: value } as any })
   },
 }))

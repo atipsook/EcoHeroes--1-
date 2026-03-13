@@ -51,7 +51,7 @@ export default function HomeScreen() {
   const [isSubmittingCustom, setIsSubmittingCustom] = useState(false)
 
   // FIX 1: Teachers complete immediately — only students with a class need approval
-  const isTeacher = user?.role === 'parent'
+  const isTeacher = user?.role === 'teacher'
   const hasClass = !!(user as any)?.class_code
   const needsApproval = !isTeacher && hasClass
 

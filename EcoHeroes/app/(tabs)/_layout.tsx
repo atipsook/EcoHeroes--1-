@@ -7,6 +7,7 @@ import { useGameStore } from '../../store/useGameStore'
 
 export default function TabsLayout() {
   const user = useGameStore((state) => state.user)
+  const isTeacher = user?.role === 'teacher'
   const isParent = user?.role === 'parent'
 
   return (
@@ -15,14 +16,8 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.gray,
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '600',
-          marginTop: 2,
-        },
-        tabBarIconStyle: {
-          marginBottom: 0,
-        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: 2 },
+        tabBarIconStyle: { marginBottom: 0 },
         tabBarStyle: {
           backgroundColor: COLORS.white,
           borderTopWidth: 1,
@@ -65,12 +60,24 @@ export default function TabsLayout() {
           ),
         }}
       />
+      {/* Teacher-only admin tab */}
       <Tabs.Screen
         name="admin"
         options={{
           title: 'Admin',
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'shield' : 'shield-outline'} size={24} color={color} />
+          ),
+          tabBarButton: isTeacher ? undefined : () => null,
+        }}
+      />
+      {/* Parent-only tab */}
+      <Tabs.Screen
+        name="parent"
+        options={{
+          title: 'My Kids',
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons name={focused ? 'heart' : 'heart-outline'} size={24} color={color} />
           ),
           tabBarButton: isParent ? undefined : () => null,
         }}

@@ -29,6 +29,14 @@
     "web": {
       "favicon": "./assets/ccc.jpg"
     },
-    "plugins": []
+    "plugins": [
+      "expo-font"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "31148f3d-5836-4699-a70b-d0e6dae6bf7c"
+      }
+    },
+    "owner": "atipsook"
   }
 }
