@@ -162,10 +162,14 @@ function PremiumModal({ onClose }: { onClose: () => void }) {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) throw new Error('Not logged in')
 
+      // Explicitly pass the auth token in the header
       const { data, error } = await supabase.functions.invoke('create-subscription', {
         body: { priceId: PRICE_IDS[selected] },
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       })
-      if (error) throw error
+      if (error) throw new Error(error.message || 'Edge function error')
       if (!data?.url) throw new Error('No checkout URL returned')
 
       if (typeof window !== 'undefined') {

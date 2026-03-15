@@ -26,9 +26,11 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const token = authHeader.replace('Bearer ', '')
+    const token = authHeader.replace('Bearer ', '').trim()
+    if (!token) throw new Error('No token provided')
+
     const { data: { user }, error: userError } = await supabase.auth.getUser(token)
-    if (userError || !user) throw new Error('Invalid user token')
+    if (userError || !user) throw new Error(`Invalid user token: ${userError?.message}`)
 
     const { priceId } = await req.json()
     if (!priceId) throw new Error('No priceId provided')
@@ -67,7 +69,7 @@ Deno.serve(async (req) => {
     // Use origin from request, fall back to app URL for Expo/mobile clients
     const origin = req.headers.get('origin')
       || req.headers.get('referer')?.replace(/\/$/, '')
-      || 'https://eco-heroes_2.vercel.app'
+      || 'https://ecoheroesapp.vercel.app'
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
