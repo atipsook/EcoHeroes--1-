@@ -550,7 +550,7 @@ export default function ProfileScreen() {
       <ParentRequestPopup />
 
       {/* Premium modal */}
-      {showPremium && <PremiumModal onClose={() => setShowPremium(false)} />}
+     
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={s.pageHeader}>
