@@ -408,9 +408,7 @@ export default function ProfileScreen() {
         )}
       </View>
 
-      <View style={s.section}>
-        <PremiumBanner subtitle="Streak freeze, exclusive badges & more" />
-      </View>
+    
 
       <SettingsSection />
       <AppFooter />
@@ -485,9 +483,7 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      <View style={s.section}>
-        <PremiumBanner subtitle="Unlimited custom challenges & analytics" />
-      </View>
+     
 
       <SettingsSection />
       <AppFooter />
@@ -527,9 +523,7 @@ export default function ProfileScreen() {
       </View>
 
       {/* Premium for parents */}
-      <View style={s.section}>
-        <PremiumBanner subtitle="Family sharing, progress reports & more" />
-      </View>
+    
 
       {isPremium && (
         <View style={s.section}>
