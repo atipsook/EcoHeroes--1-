@@ -86,6 +86,8 @@ const getAvatarColor = (id: number) => AVATAR_COLORS[((id ?? 1) - 1) % AVATAR_CO
 
 export default function AdminScreen() {
   const user = useGameStore((state) => state.user)
+  const isPremium = (user as any)?.isPremium ?? false
+  const FREE_CHALLENGE_LIMIT = 7
 
   // FIX: added 'classes' tab
   const [tab, setTab] = useState<'pending' | 'students' | 'classes' | 'challenges'>('pending')
@@ -597,10 +599,23 @@ export default function AdminScreen() {
           {/* ── CHALLENGES TAB ── */}
           {tab === 'challenges' && (
             <>
-              <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setEditingId(null); setShowForm(!showForm) }}>
-                <Ionicons name={showForm ? 'close' : 'add-circle'} size={20} color={COLORS.white} />
-                <Text style={styles.addBtnText}>{showForm ? 'Cancel' : 'Add New Challenge'}</Text>
-              </TouchableOpacity>
+              {!isPremium && challenges.length >= FREE_CHALLENGE_LIMIT && !showForm ? (
+                <View style={styles.premiumGate}>
+                  <Ionicons name="lock-closed" size={20} color="#F59E0B" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.premiumGateTitle}>Free plan limit reached</Text>
+                    <Text style={styles.premiumGateSub}>Upgrade to Premium for unlimited custom challenges</Text>
+                  </View>
+                  <TouchableOpacity style={styles.upgradeBtn} onPress={() => showAlert('Upgrade to Premium', 'Go to your Profile tab to upgrade to Premium and unlock unlimited custom challenges.')}>
+                    <Text style={styles.upgradeBtnText}>Upgrade</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.addBtn} onPress={() => { resetForm(); setEditingId(null); setShowForm(!showForm) }}>
+                  <Ionicons name={showForm ? 'close' : 'add-circle'} size={20} color={COLORS.white} />
+                  <Text style={styles.addBtnText}>{showForm ? 'Cancel' : 'Add New Challenge'}</Text>
+                </TouchableOpacity>
+              )}
 
               {showForm && (
                 <View style={styles.form}>
@@ -743,6 +758,11 @@ const styles = StyleSheet.create({
   classStudentPts: { fontSize: 13, fontWeight: '700', color: COLORS.accent },
   // Challenge form
   addBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.primary, paddingVertical: 13, borderRadius: 14, gap: 8, marginBottom: 16 },
+  premiumGate: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#FFFBEB', borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1.5, borderColor: '#F59E0B50' },
+  premiumGateTitle: { fontSize: 14, fontWeight: '700', color: '#92400E' },
+  premiumGateSub: { fontSize: 12, color: '#B45309', marginTop: 2 },
+  upgradeBtn: { backgroundColor: '#F59E0B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10 },
+  upgradeBtnText: { fontSize: 13, fontWeight: '700', color: COLORS.white },
   addBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '700' },
   form: { backgroundColor: COLORS.white, borderRadius: 16, padding: 16, marginBottom: 16 },
   formSection: { fontSize: 13, fontWeight: '700', color: COLORS.text, marginBottom: 8, marginTop: 14 },

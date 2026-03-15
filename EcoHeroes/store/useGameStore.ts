@@ -46,6 +46,7 @@ interface GameState {
 
   // Premium
   setPremium: (value: boolean) => Promise<void>
+  refreshPremiumStatus: () => Promise<void>
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +72,8 @@ const mapDbUser = (
   class_code: dbUser.class_code ?? null,
   parent_id: dbUser.parent_id ?? null,
   isPremium: dbUser.is_premium ?? false,
+  subscriptionStatus: dbUser.subscription_status ?? 'free',
+  subscriptionEndDate: dbUser.subscription_end_date ?? null,
   completedChallenges,
   badges,
   pendingChallenges,
@@ -374,6 +377,14 @@ export const useGameStore = create<GameState>((set, get) => ({
   createClass: async (className) => {
     const { user } = get()
     if (!user) throw new Error('Not logged in')
+
+    // Free plan: max 1 class
+    if (!(user as any).isPremium) {
+      const { count } = await supabase
+        .from('classes').select('*', { count: 'exact', head: true }).eq('owner_id', user.id)
+      if ((count ?? 0) >= 1) throw new Error('UPGRADE_REQUIRED: Free plan allows 1 class. Upgrade to Premium to create multiple classes.')
+    }
+
     const code = Math.random().toString(36).substring(2, 8).toUpperCase()
     const { error } = await supabase.from('classes').insert({ code, owner_id: user.id, name: className })
     if (error) throw new Error(error.message)
@@ -420,6 +431,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { user } = get()
     if (!user || user.role !== 'parent') throw new Error('Not a parent account')
     const email = childEmail.trim().toLowerCase()
+
+    // Free plan: max 1 child
+    if (!(user as any).isPremium) {
+      const { count } = await supabase
+        .from('parent_children').select('*', { count: 'exact', head: true }).eq('parent_id', user.id)
+      if ((count ?? 0) >= 1) throw new Error('UPGRADE_REQUIRED: Free plan allows 1 child. Upgrade to Premium for family sharing with up to 4 children.')
+    }
 
     // Insert the invite row
     const { error } = await supabase.from('parent_children').insert({
@@ -495,5 +513,25 @@ export const useGameStore = create<GameState>((set, get) => ({
     const { error } = await supabase.from('users').update({ is_premium: value }).eq('id', user.id)
     if (error) throw new Error(error.message)
     set({ user: { ...user, isPremium: value } as any })
+  },
+
+  // ── refreshPremiumStatus — call after returning from Stripe checkout ────────
+  refreshPremiumStatus: async () => {
+    const { user } = get()
+    if (!user) return
+    const { data, error } = await supabase
+      .from('users')
+      .select('is_premium, subscription_status, subscription_end_date')
+      .eq('id', user.id)
+      .single()
+    if (error || !data) return
+    set({
+      user: {
+        ...user,
+        isPremium: data.is_premium ?? false,
+        subscriptionStatus: data.subscription_status ?? 'free',
+        subscriptionEndDate: data.subscription_end_date ?? null,
+      } as any,
+    })
   },
 }))

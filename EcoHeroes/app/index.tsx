@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { useGameStore } from '../store/useGameStore'
 import { COLORS } from '../constants/types'
 import { supabase } from '../lib/supabase'
+import { hasSeenOnboarding } from './onboarding'
 
 const showAlert = (title: string, message?: string) => {
   if (Platform.OS === 'web') {
@@ -23,10 +24,16 @@ export default function WelcomeScreen() {
   const awaitingEmailConfirmation = useGameStore((state) => state.awaitingEmailConfirmation)
   const loadUser = useGameStore((state) => state.loadUser)
 
-  // Redirect to app once authenticated
+  // Redirect to app once authenticated — show onboarding on first visit
   useEffect(() => {
     if (!isLoading && isAuthenticated) {
-      router.replace('/(tabs)/home')
+      hasSeenOnboarding().then((seen) => {
+        if (seen) {
+          router.replace('/(tabs)/home')
+        } else {
+          router.replace('/onboarding')
+        }
+      })
     }
   }, [isAuthenticated, isLoading])
 

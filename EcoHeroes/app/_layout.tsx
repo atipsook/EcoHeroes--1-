@@ -1,13 +1,13 @@
 // app/_layout.tsx
 import { useEffect } from 'react'
-import { Slot } from 'expo-router'
-import { View, ActivityIndicator } from 'react-native'
+import { Slot, useRouter } from 'expo-router'
+import { View, ActivityIndicator, AppState } from 'react-native'
 import * as Font from 'expo-font'
 import { useGameStore } from '../store/useGameStore'
 import { COLORS } from '../constants/types'
 
 export default function RootLayout() {
-  const { loadUser, isLoading } = useGameStore()
+  const { loadUser, isLoading, refreshPremiumStatus, isAuthenticated } = useGameStore()
 
   useEffect(() => {
     async function init() {
@@ -18,6 +18,17 @@ export default function RootLayout() {
     }
     init()
   }, [])
+
+  // Refresh premium status whenever the app comes back to foreground
+  // This catches users returning from Stripe checkout
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && isAuthenticated) {
+        refreshPremiumStatus()
+      }
+    })
+    return () => sub.remove()
+  }, [isAuthenticated])
 
   if (isLoading) {
     return (

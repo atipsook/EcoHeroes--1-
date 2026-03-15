@@ -78,6 +78,10 @@ export default function ParentScreen() {
       setShowAddForm(false)
       await loadChildren()
     } catch (e: any) {
+      if (e.message?.startsWith('UPGRADE_REQUIRED:')) {
+        showAlert('Premium required', e.message.replace('UPGRADE_REQUIRED: ', '') + ' Go to Profile → Upgrade to Premium.')
+        return
+      }
       showAlert('Error', e.message || 'Could not add child.')
     } finally { setAddingChild(false) }
   }

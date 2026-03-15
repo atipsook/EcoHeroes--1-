@@ -209,6 +209,12 @@ export default function LoginScreen() {
             : <Text style={styles.submitBtnText}>{isSignUp ? 'Create Account' : 'Sign In'}</Text>}
         </TouchableOpacity>
 
+        {!isSignUp && (
+          <TouchableOpacity style={styles.forgotBtn} onPress={() => router.push('/(auth)/forgot-password')}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.toggleBtn} onPress={() => { setIsSignUp(!isSignUp); setPassword('') }}>
           <Text style={styles.toggleText}>
             {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
@@ -268,6 +274,8 @@ const styles = StyleSheet.create({
   },
   submitBtnDisabled: { backgroundColor: COLORS.gray },
   submitBtnText: { color: COLORS.white, fontSize: 17, fontWeight: '700' },
+  forgotBtn: { alignItems: 'center', paddingVertical: 6, marginBottom: 4 },
+  forgotText: { fontSize: 14, color: COLORS.primary, fontWeight: '600' },
   toggleBtn: { alignItems: 'center', paddingVertical: 8 },
   toggleText: { fontSize: 14, color: COLORS.textLight },
   toggleLink: { color: COLORS.primary, fontWeight: '700' },

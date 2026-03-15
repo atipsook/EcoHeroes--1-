@@ -10,6 +10,7 @@ import { useRouter } from 'expo-router'
 import { useGameStore } from '../../store/useGameStore'
 import { COLORS } from '../../constants/types'
 import { BADGES } from '../../constants/data'
+import { supabase } from '../../lib/supabase'
 
 // ── Cross-platform alert helpers ──────────────────────────────────────────────
 const showAlert = (title: string, message?: string) => {
@@ -147,19 +148,34 @@ const PLANS = [
 ]
 
 function PremiumModal({ onClose }: { onClose: () => void }) {
-  const { setPremium } = useGameStore()
   const [selected, setSelected] = useState('yearly')
   const [loading, setLoading] = useState(false)
+
+  const PRICE_IDS: Record<string, string> = {
+    monthly: 'price_1TB9VkAmfpoph4nl4v4jBvSC',
+    yearly: 'price_1TB9WKAmfpoph4nlIS4oySmW',
+  }
 
   const handleSubscribe = async () => {
     setLoading(true)
     try {
-      // TODO: Replace with real Stripe payment intent call before going live
-      // e.g. const { clientSecret } = await fetch('/api/create-subscription', { ... })
-      // For now, directly mark premium in DB as a demo
-      await setPremium(true)
-      showAlert('Welcome to Premium! 🌟', 'All premium features are now unlocked.')
-      onClose()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Not logged in')
+
+      const { data, error } = await supabase.functions.invoke('create-subscription', {
+        body: { priceId: PRICE_IDS[selected] },
+      })
+      if (error) throw error
+      if (!data?.url) throw new Error('No checkout URL returned')
+
+      if (typeof window !== 'undefined') {
+        window.open(data.url, '_blank')
+        onClose()
+        showAlert(
+          'Redirecting to payment...',
+          'Complete your payment in the new tab. Come back and refresh the app once done.'
+        )
+      }
     } catch (e: any) {
       showAlert('Payment failed', e.message || 'Please try again.')
     } finally { setLoading(false) }
@@ -328,7 +344,14 @@ export default function ProfileScreen() {
       const code = await createClass(newClassName.trim())
       setGeneratedCode(code)
       showAlert('Class Created! 🎉', `Your class code is: ${code}\n\nShare this with your students.`)
-    } catch (e: any) { showAlert('Error', e.message) }
+    } catch (e: any) {
+      if (e.message?.startsWith('UPGRADE_REQUIRED:')) {
+        showAlert('Premium required ⭐', e.message.replace('UPGRADE_REQUIRED: ', ''))
+        setShowPremium(true)
+      } else {
+        showAlert('Error', e.message)
+      }
+    }
     finally { setIsLoadingClass(false) }
   }
 

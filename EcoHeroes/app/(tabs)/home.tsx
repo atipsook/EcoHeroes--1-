@@ -50,10 +50,10 @@ export default function HomeScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmittingCustom, setIsSubmittingCustom] = useState(false)
 
-  // FIX 1: Teachers complete immediately — only students with a class need approval
+  // Teachers ALWAYS complete immediately regardless of class_code — only non-teachers need approval
   const isTeacher = user?.role === 'teacher'
   const hasClass = !!(user as any)?.class_code
-  const needsApproval = !isTeacher && hasClass
+  const needsApproval = user?.role === 'student' && hasClass
 
   const pendingChallenges = (user as any)?.pendingChallenges || []
   const completedChallenges = user?.completedChallenges || []
@@ -161,14 +161,18 @@ export default function HomeScreen() {
       let photoUrl: string | undefined
       if (photo) photoUrl = await uploadPhoto(photo, challenge.id) || undefined
 
-      if (needsApproval) {
+      // Teachers always complete directly — never go through pending approval
+      if (user.role === 'student' && needsApproval) {
         await submitForApproval(challenge.id, photoUrl)
         showAlert('Submitted! ⏳', 'Sent to your teacher for approval!')
       } else {
         await completeChallenge(challenge.id, photoUrl)
         await addPoints(challenge.pointsValue)
         await updateStreak()
-        showAlert('Great Job! 🎉', `You earned ${challenge.pointsValue} points!`)
+        const msg = isTeacher
+          ? `Challenge complete! +${challenge.pointsValue} pts 🎓`
+          : `You earned ${challenge.pointsValue} points!`
+        showAlert('Great Job! 🎉', msg)
       }
     } catch (error: any) {
       showAlert('Error', error.message || 'Could not save your challenge.')
@@ -181,8 +185,8 @@ export default function HomeScreen() {
     if (!challenge) return { label: 'No Challenge', color: COLORS.gray, disabled: true }
     if (completedChallenges.includes(challenge.id)) return { label: 'Completed ✅', color: COLORS.success, disabled: true }
     if (pendingChallenges.includes(challenge.id)) return { label: 'Pending Approval ⏳', color: COLORS.accent, disabled: true }
-    // Teachers always see "Mark as Complete", never "Submit for Approval"
-    const label = needsApproval ? 'Submit for Approval' : 'Mark as Complete'
+    // Teachers always see "Mark as Complete" — only students in a class see "Submit for Approval"
+    const label = (user?.role === 'student' && needsApproval) ? 'Submit for Approval' : 'Mark as Complete'
     return { label, color: COLORS.primary, disabled: false }
   }
 
@@ -260,7 +264,7 @@ export default function HomeScreen() {
           </View>
         )}
 
-        {isPending && (
+        {isPending && !isTeacher && (
           <View style={styles.pendingBanner}>
             <Ionicons name="time" size={16} color={COLORS.accent} />
             <Text style={styles.pendingText}>Waiting for teacher approval</Text>
