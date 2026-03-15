@@ -64,13 +64,18 @@ Deno.serve(async (req) => {
     }
 
     // Create Stripe Checkout session
+    // Use origin from request, fall back to app URL for Expo/mobile clients
+    const origin = req.headers.get('origin')
+      || req.headers.get('referer')?.replace(/\/$/, '')
+      || 'https://eco-heroes-1-jnh7.vercel.app'
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
       mode: 'subscription',
-      success_url: `${req.headers.get('origin') || 'https://your-app.vercel.app'}/?premium=success`,
-      cancel_url: `${req.headers.get('origin') || 'https://your-app.vercel.app'}/?premium=cancelled`,
+      success_url: `${origin}/?premium=success`,
+      cancel_url: `${origin}/?premium=cancelled`,
       metadata: { supabase_user_id: user.id },
     })
 
