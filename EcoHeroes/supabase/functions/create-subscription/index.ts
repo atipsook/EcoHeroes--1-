@@ -67,7 +67,7 @@ Deno.serve(async (req) => {
     // Use origin from request, fall back to app URL for Expo/mobile clients
     const origin = req.headers.get('origin')
       || req.headers.get('referer')?.replace(/\/$/, '')
-      || 'https://eco-heroes-1-jnh7.vercel.app'
+      || 'https://eco-heroes_2.vercel.app'
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
