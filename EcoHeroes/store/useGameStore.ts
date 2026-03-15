@@ -276,7 +276,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       completed_at: new Date().toISOString(),
     })
     if (error) throw new Error(`Could not save challenge: ${error.message}`)
-    set({ user: { ...user, completedChallenges: [...user.completedChallenges, challengeId] } })
+    // Clean up any stale pending row for this challenge (e.g. teacher self-approving)
+    await supabase.from('pending_challenges')
+      .delete().eq('user_id', user.id).eq('challenge_id', challengeId)
+    const pending = ((user as any).pendingChallenges ?? []).filter((id: string) => id !== challengeId)
+    set({ user: { ...user, completedChallenges: [...user.completedChallenges, challengeId], pendingChallenges: pending } as any })
   },
 
   // ── submitForApproval ──────────────────────────────────────────────────────
