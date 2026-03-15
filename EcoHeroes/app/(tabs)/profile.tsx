@@ -285,25 +285,7 @@ export default function ProfileScreen() {
   )
 
   // ── Premium banner ─────────────────────────────────────────────────────────
-  const PremiumBanner = ({ subtitle }: { subtitle: string }) =>
-    !isPremium ? (
-      <TouchableOpacity style={s.premiumBanner} onPress={() => setShowPremium(true)} activeOpacity={0.85}>
-        <View style={s.premiumBannerLeft}>
-          <Ionicons name="star" size={28} color="#F59E0B" />
-          <View>
-            <Text style={s.premiumBannerTitle}>Upgrade to Premium</Text>
-            <Text style={s.premiumBannerSub}>{subtitle}</Text>
-          </View>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#F59E0B" />
-      </TouchableOpacity>
-    ) : (
-      <View style={s.premiumActiveRow}>
-        <Ionicons name="star" size={20} color="#F59E0B" />
-        <Text style={s.premiumActiveText}>Premium active — all features unlocked ✨</Text>
-      </View>
-    )
-
+  
   // ── Settings footer (shared) ───────────────────────────────────────────────
   const SettingsSection = ({ showReset = true }: { showReset?: boolean }) => (
     <View style={s.section}>
